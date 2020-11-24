@@ -54,7 +54,7 @@ int decode_mode(char** instruction) {
 					mode = MODE_IMMEDIATE; break;
 				case 0x00: case 0x01:
 					ir <<= 8;
-					ir |= (*instruction)[1];
+					ir |= (*instruction)[0];
 					(*instruction)++;
 					switch (ir & 0xf0) {
 						case 0x20:
@@ -110,7 +110,7 @@ void decode_effective_address(char* data, char* dst, int n)
 		sprintf(buffer, "%hhi,%s%s%s", extend5(post & 0x1f), decs, regname(post), incs);
 	} else {
 		switch (post & 0x1f) {
-			case 0x00: case 0x02:
+			case 0x00: case 0x02: case 0x04: case 0x01: case 0x14: case 0x11:
 				sprintf(buffer, ",%s%s%s", decs, regname(post), incs);
 				break;
 			case 0x05: case 0x15:

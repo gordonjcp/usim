@@ -938,18 +938,22 @@ void mc6809::help_ror(Byte& x)
 void mc6809::rti(void)
 {
 	check_stack_ovf("rti");
+	uint16_t tmp_pc = pc;
 	help_pul(0x01, s, u);
 	if (cc.bit.e) {
 		help_pul(0xfe, s, u);
 	} else {
 		help_pul(0x80, s, u);
 	}
+	on_ret("rti", tmp_pc, pc);
 }
 
 void mc6809::rts(void)
 {
 	check_stack_ovf("rts");
+	uint16_t tmp_pc = pc;
 	pc = read_word(s);
+	on_ret("rts", tmp_pc, pc);
 	s += 2;
 }
 

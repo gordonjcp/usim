@@ -605,6 +605,12 @@ Word mc6809::do_effective_address(Byte post)
 		}
 	}
 
+	/*if (post == 0x84) {
+		char buf[30];
+		sprintf(buf, "addr = 0x%hX\n", addr);
+		invalid(buf);
+	}*/
+
 	return addr;
 }
 
