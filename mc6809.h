@@ -9,7 +9,35 @@
 #pragma once
 
 #include "usim.h"
-#include "machdep.h"
+
+//#define MACH_BYTE_ORDER_MSB_FIRST
+#define MACH_BITFIELDS_LSB_FIRST
+
+#define INSTRUCTION_RECORD_SIZE 64
+
+class Instruction {
+public:
+	char byte_length;
+	char bytes[8];
+	Word address;
+	Word s;
+
+	Instruction() {}
+
+	Instruction(Word pc, Word ss, char firstByte) {
+		bytes[0] = firstByte;
+		byte_length = 1;
+		address = pc;
+		s = ss;
+	}
+
+	void decode(char* string);
+
+	void append(char newbyte) {
+		if (byte_length < 8)
+			bytes[byte_length++] = newbyte;
+	}
+};
 
 class mc6809 : virtual public USimMotorola {
 
@@ -26,8 +54,7 @@ protected:
 	} mode;
 
 // Processor registers
-protected:
-
+public:
 	Word			u, s;		// Stack pointers
 	Word			x, y;		// Index registers
 	Byte			dp;		// Direct Page register
@@ -70,6 +97,17 @@ protected:
 #endif
 		} bit;
 	} cc;
+
+protected:
+
+	bool was_doing_sync = false;
+	bool had_interrupt;
+
+	Word stack_ovf = 0;
+
+	Instruction last_instructions[INSTRUCTION_RECORD_SIZE];
+	int instruction_loc = -1;
+	int next_ins_loc = 0;
 
 private:
 
@@ -147,10 +185,6 @@ private:
 	void			do_br(int);
 	void			do_lbr(int);
 
-	void			do_nmi(void);
-	void			do_firq(void);
-	void			do_irq(void);
-
 	void			help_adc(Byte&);
 	void			help_add(Byte&);
 	void			help_and(Byte&);
@@ -181,7 +215,14 @@ private:
 	void			help_tst(Byte);
 
 protected:
-	virtual void		execute(void);
+	virtual void	check_stack_ovf(const char* desc);
+	virtual void	execute(void);
+	virtual void	on_branch(const char* opcode, uint16_t src, uint16_t dst) {}
+	virtual void	on_branch_subroutine(const char* opcode, uint16_t src, uint16_t dst) {}
+	virtual void	on_nmi(uint16_t src, uint16_t dst) {}
+	virtual void	on_irq(uint16_t src, uint16_t dst) {}
+	virtual void	on_firq(uint16_t src, uint16_t dst) {}
+	virtual void	on_ret(const char* opcode, uint16_t src, uint16_t dst) {}
 
 public:
 				mc6809();		// public constructor
@@ -189,5 +230,23 @@ public:
 
 	virtual void		reset(void);		// CPU reset
 	virtual void		status(void);
+
+	/*
+		The service flag tells the CPU weather the interrupt lasts 3 or more cycles
+		If a sync instruction is in progress:
+			if service = true
+				forces CPU to stack the registers and go to the nmi handler
+			else
+				exit sync command
+		else
+			stack the registers and go to the nmi handler
+	*/
+	virtual bool		nmi(bool service);
+	virtual bool		firq(void);
+	virtual bool		irq(void);
+
+	// if S drops below the argument then an emergency will initiate with the invalid() function
+	// set to 0 to disable
+	virtual void		set_stack_overflow(uint16_t s) { stack_ovf = s; };
 
 };

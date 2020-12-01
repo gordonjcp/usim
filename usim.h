@@ -8,7 +8,6 @@
 
 #pragma once
 
-#include "machdep.h"
 #include "typedefs.h"
 #include "misc.h"
 
@@ -18,20 +17,14 @@ class USim {
 protected:
 
 		int		 halted;
-		Byte		*memory;
 		Byte		*port;
-
-// Generic internal registers that we assume all CPUs have
-
-		Word		ir;
-		Word		pc;
 
 // Generic read/write/execute functions
 protected:
 
-	virtual Byte		read(Word offset);
+	virtual Byte		read(Word offset) = 0;
 	virtual Word		read_word(Word offset) = 0;
-	virtual void		write(Word offset, Byte val);
+	virtual void		write(Word offset, Byte val) = 0;
 	virtual void		write_word(Word offset, Word val) = 0;
 	virtual Byte		fetch(void);
 	virtual Word		fetch_word(void);
@@ -40,12 +33,17 @@ protected:
 // Functions to start and stop the virtual processor
 public:
 
+// Generic internal registers that we assume all CPUs have
+
+		Word		ir;
+		Word		pc;
+
 	virtual void		 run(void);
 	virtual void		 step(void);
 	virtual void		 halt(void);
 	virtual void		 reset(void) = 0;
 	virtual void		 status(void) = 0;
-	virtual void		 invalid(const char * = 0);
+	virtual void		 invalid(const char * = 0) = 0;
 
 // Function to load the processor state
 public:

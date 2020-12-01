@@ -4,19 +4,17 @@
 //	(C) R.P.Bellis
 //
 
-#include "machdep.h"
 #include "usim.h"
 #include "mc6809.h"
 
+#include <stdio.h>
+
 mc6809::mc6809() : a(acc.byte.a), b(acc.byte.b), d(acc.d)
 {
-	memory = new Byte[0x10000L];
-	reset();
 }
 
 mc6809::~mc6809()
 {
-	delete[] memory;
 }
 
 void mc6809::reset(void)
@@ -26,6 +24,7 @@ void mc6809::reset(void)
 	cc.all = 0x00;		/* Clear all flags */
 	cc.bit.i = 1;		/* IRQ disabled */
 	cc.bit.f = 1;		/* FIRQ disabled */
+	was_doing_sync = false;
 }
 
 void mc6809::status(void)
@@ -34,7 +33,14 @@ void mc6809::status(void)
 
 void mc6809::execute(void)
 {
+	Word oldpc = pc;
 	ir = fetch();
+
+	if (instruction_loc == -1 || last_instructions[instruction_loc].address != oldpc) {
+		last_instructions[next_ins_loc] = Instruction(oldpc, s, ir);
+		instruction_loc = next_ins_loc;
+		next_ins_loc = (next_ins_loc + 1) % INSTRUCTION_RECORD_SIZE;
+	}
 
 	/* Select addressing mode */
 	switch (ir & 0xf0) {
@@ -74,6 +80,7 @@ void mc6809::execute(void)
 				case 0x00: case 0x01:
 					ir <<= 8;
 					ir |= fetch();
+					last_instructions[instruction_loc].append(ir & 255);
 					switch (ir & 0xf0) {
 						case 0x20:
 							mode = relative; break;
@@ -95,30 +102,16 @@ void mc6809::execute(void)
 
 	/* Select instruction */
 	switch (ir) {
-		case 0x3a:
-			abx(); break;
-		case 0x89: case 0x99: case 0xa9: case 0xb9:
-			adca(); break;
-		case 0xc9: case 0xd9: case 0xe9: case 0xf9:
-			adcb(); break;
-		case 0x8b: case 0x9b: case 0xab: case 0xbb:
-			adda(); break;
-		case 0xcb: case 0xdb: case 0xeb: case 0xfb:
-			addb(); break;
-		case 0xc3: case 0xd3: case 0xe3: case 0xf3:
-			addd(); break;
-		case 0x84: case 0x94: case 0xa4: case 0xb4:
-			anda(); break;
-		case 0xc4: case 0xd4: case 0xe4: case 0xf4:
-			andb(); break;
+		case 0x13:
+			sync(); break;
+		case 0x16:
+			lbra(); break;
 		case 0x1c:
 			andcc(); break;
-		case 0x47:
-			asra(); break;
-		case 0x57:
-			asrb(); break;
-		case 0x07: case 0x67: case 0x77:
-			asr(); break;
+		case 0x1f:
+			tfr(); break;
+		case 0x21:
+			brn(); break;
 		case 0x24:
 			bcc(); break;
 		case 0x25:
@@ -129,12 +122,22 @@ void mc6809::execute(void)
 			bge(); break;
 		case 0x2e:
 			bgt(); break;
+		case 0x3a:
+			abx(); break;
+		case 0x47:
+			asra(); break;
+		case 0x4d:
+			tsta(); break;
+		case 0x5d:
+			tstb(); break;
+		case 0x0d: case 0x6d: case 0x7d:
+			tst(); break;
+		case 0x57:
+			asrb(); break;
+		case 0x07: case 0x67: case 0x77:
+			asr(); break;
 		case 0x22:
 			bhi(); break;
-		case 0x85: case 0x95: case 0xa5: case 0xb5:
-			bita(); break;
-		case 0xc5: case 0xd5: case 0xe5: case 0xf5:
-			bitb(); break;
 		case 0x2f:
 			ble(); break;
 		case 0x23:
@@ -149,10 +152,6 @@ void mc6809::execute(void)
 			bpl(); break;
 		case 0x20:
 			bra(); break;
-		case 0x16:
-			lbra(); break;
-		case 0x21:
-			brn(); break;
 		case 0x8d:
 			bsr(); break;
 		case 0x17:
@@ -333,51 +332,72 @@ void mc6809::execute(void)
 			subd(); break;
 		case 0x3f:
 			swi(); break;
-		case 0x103f:
-			swi2(); break;
-		case 0x113f:
-			swi3(); break;
-		case 0x1f:
-			tfr(); break;
-		case 0x4d:
-			tsta(); break;
-		case 0x5d:
-			tstb(); break;
-		case 0x0d: case 0x6d: case 0x7d:
-			tst(); break;
+		case 0x89: case 0x99: case 0xa9: case 0xb9:
+			adca(); break;
+		case 0xc9: case 0xd9: case 0xe9: case 0xf9:
+			adcb(); break;
+		case 0x8b: case 0x9b: case 0xab: case 0xbb:
+			adda(); break;
+		case 0xcb: case 0xdb: case 0xeb: case 0xfb:
+			addb(); break;
+		case 0xc3: case 0xd3: case 0xe3: case 0xf3:
+			addd(); break;
+		case 0x84: case 0x94: case 0xa4: case 0xb4:
+			anda(); break;
+		case 0xc4: case 0xd4: case 0xe4: case 0xf4:
+			andb(); break;
+		case 0x85: case 0x95: case 0xa5: case 0xb5:
+			bita(); break;
+		case 0xc5: case 0xd5: case 0xe5: case 0xf5:
+			bitb(); break;
+		case 0x1021:
+			lbrn(); break;
+		case 0x1022:
+			lbhi(); break;
+		case 0x1023:
+			lbls(); break;
 		case 0x1024:
 			lbcc(); break;
 		case 0x1025:
 			lbcs(); break;
-		case 0x1027:
-			lbeq(); break;
-		case 0x102c:
-			lbge(); break;
-		case 0x102e:
-			lbgt(); break;
-		case 0x1022:
-			lbhi(); break;
-		case 0x102f:
-			lble(); break;
-		case 0x1023:
-			lbls(); break;
-		case 0x102d:
-			lblt(); break;
-		case 0x102b:
-			lbmi(); break;
 		case 0x1026:
 			lbne(); break;
-		case 0x102a:
-			lbpl(); break;
-		case 0x1021:
-			lbrn(); break;
+		case 0x1027:
+			lbeq(); break;
 		case 0x1028:
 			lbvc(); break;
 		case 0x1029:
 			lbvs(); break;
+		case 0x102a:
+			lbpl(); break;
+		case 0x102b:
+			lbmi(); break;
+		case 0x102c:
+			lbge(); break;
+		case 0x102d:
+			lblt(); break;
+		case 0x102e:
+			lbgt(); break;
+		case 0x102f:
+			lble(); break;
+		case 0x103f:
+			swi2(); break;
+		case 0x113f:
+			swi3(); break;
 		default:
 			// TODO: make run-time selectable
-			invalid("instruction"); break;
+			char tmp[48];
+			sprintf(tmp, "invalid opcode %02x", ir);
+			invalid(tmp); break;
+	}
+	instruction_loc = next_ins_loc;
+}
+
+void mc6809::check_stack_ovf(const char* desc) {
+	char tmp[48];
+	if (s < stack_ovf) {
+		sprintf(tmp, "Stack Overflow detected at %s. %04x < %04x", desc, s, stack_ovf);
+		invalid(tmp);
 	}
 }
 
@@ -434,16 +454,22 @@ Byte mc6809::fetch_operand(void)
 
 	if (mode == immediate) {
 		ret = fetch();
+		last_instructions[instruction_loc].append(ret);
 	} else if (mode == relative) {
 		ret = fetch();
+		last_instructions[instruction_loc].append(ret);
 	} else if (mode == extended) {
 		addr = fetch_word();
 		ret = read(addr);
+		last_instructions[instruction_loc].append(addr >> 8);
+		last_instructions[instruction_loc].append(addr & 255);
 	} else if (mode == direct) {
 		addr = ((Word)dp << 8) | fetch();
 		ret = read(addr);
+		last_instructions[instruction_loc].append(addr & 255);
 	} else if (mode == indexed) {
 		Byte		post = fetch();
+		last_instructions[instruction_loc].append(post);
 		do_predecrement(post);
 		addr = do_effective_address(post);
 		ret = read(addr);
@@ -461,16 +487,24 @@ Word mc6809::fetch_word_operand(void)
 
 	if (mode == immediate) {
 		ret = fetch_word();
+		last_instructions[instruction_loc].append(ret >> 8);
+		last_instructions[instruction_loc].append(ret & 255);
 	} else if (mode == relative) {
 		ret = fetch_word();
+		last_instructions[instruction_loc].append(ret >> 8);
+		last_instructions[instruction_loc].append(ret & 255);
 	} else if (mode == extended) {
 		addr = fetch_word();
+		last_instructions[instruction_loc].append(addr >> 8);
+		last_instructions[instruction_loc].append(addr & 255);
 		ret = read_word(addr);
 	} else if (mode == direct) {
 		addr = (Word)dp << 8 | fetch();
 		ret = read_word(addr);
+		last_instructions[instruction_loc].append(addr & 255);
 	} else if (mode == indexed) {
 		Byte	post = fetch();
+		last_instructions[instruction_loc].append(post);
 		do_predecrement(post);
 		addr = do_effective_address(post);
 		do_postincrement(post);
@@ -488,10 +522,14 @@ Word mc6809::fetch_effective_address(void)
 
 	if (mode == extended) {
 		addr = fetch_word();
+		last_instructions[instruction_loc].append(addr >> 8);
+		last_instructions[instruction_loc].append(addr & 255);
 	} else if (mode == direct) {
 		addr = (Word)dp << 8 | fetch();
+		last_instructions[instruction_loc].append(addr & 255);
 	} else if (mode == indexed) {
 		Byte		post = fetch();
+		last_instructions[instruction_loc].append(post);
 		do_predecrement(post);
 		addr = do_effective_address(post);
 		do_postincrement(post);
@@ -505,6 +543,8 @@ Word mc6809::fetch_effective_address(void)
 Word mc6809::do_effective_address(Byte post)
 {
 	Word		addr = 0;
+	Word		tmp;
+	Byte		tmpb;
 
 	if ((post & 0x80) == 0x00) {
 		addr = refreg(post) + extend5(post & 0x1f);
@@ -529,21 +569,30 @@ Word mc6809::do_effective_address(Byte post)
 				addr = refreg(post) + extend8(fetch());
 				break;
 			case 0x09: case 0x19:
-				addr = refreg(post) + fetch_word();
+				tmp = fetch_word();
+				last_instructions[instruction_loc].append(tmp >> 8);
+				last_instructions[instruction_loc].append(tmp & 255);
+				addr = refreg(post) + tmp;
 				break;
 			case 0x0b: case 0x1b:
 				addr = d + refreg(post);
 				break;
 			case 0x0c: case 0x1c:
-				addr = extend8(fetch()); // NB: fetch first
+				tmpb = fetch();
+				last_instructions[instruction_loc].append(tmpb);
+				addr = extend8(tmpb); // NB: fetch first
 				addr += pc;
 				break;
 			case 0x0d: case 0x1d:
 				addr = fetch_word();	 // NB: fetch first
+				last_instructions[instruction_loc].append(addr >> 8);
+				last_instructions[instruction_loc].append(addr & 255);
 				addr += pc;
 				break;
 			case 0x1f:
 				addr = fetch_word();
+				last_instructions[instruction_loc].append(addr >> 8);
+				last_instructions[instruction_loc].append(addr & 255);
 				break;
 			default:
 				invalid("indirect addressing postbyte");
@@ -555,6 +604,12 @@ Word mc6809::do_effective_address(Byte post)
 			addr = read_word(addr);
 		}
 	}
+
+	/*if (post == 0x84) {
+		char buf[30];
+		sprintf(buf, "addr = 0x%hX\n", addr);
+		invalid(buf);
+	}*/
 
 	return addr;
 }
@@ -587,4 +642,131 @@ void mc6809::do_predecrement(Byte post)
 			refreg(post) -= 2;
 			break;
 	}
+}
+
+bool mc6809::firq(void) {
+	if (!was_doing_sync) {
+		if (cc.bit.f) {
+			// interrupt cannot execute because interrupts are disabled
+			return false;
+		}
+
+		check_stack_ovf("firq_pre_psh");
+		// push PC onto stack
+		write(--s, (Byte)pc);
+		write(--s, (Byte)(pc >> 8));
+		
+		// push CCR onto stack
+		write(--s, (Byte)cc.all);
+		check_stack_ovf("firq_post_psh");
+
+		// clear e flag to indicate fast interrupt
+		cc.bit.e = 0;
+
+		// disable interrupts
+		cc.bit.f = 1;
+		cc.bit.i = 1;
+
+		on_firq(pc, read_word(0xFFFC));
+
+		// jump to isr
+		pc = read_word(0xFFF6);
+	} else {
+		on_firq(pc, pc + 1);
+	}
+
+	had_interrupt = true;
+
+	// yes the interrupt will be executed
+	return true;
+}
+
+bool mc6809::nmi(bool service) {
+
+	check_stack_ovf("nmi_pre_psh");
+	// push PC onto stack
+	write(--s, (Byte)pc);
+	write(--s, (Byte)(pc >> 8));
+	
+	// push other registers
+	write(--s, (Byte)u);
+	write(--s, (Byte)(u >> 8));
+	write(--s, (Byte)y);
+	write(--s, (Byte)(y >> 8));
+	write(--s, (Byte)x);
+	write(--s, (Byte)(x >> 8));
+	write(--s, dp);
+	write(--s, b);
+	write(--s, a);
+	
+
+	// set e flag to indicate normal interrupt
+	cc.bit.e = 1;
+
+	// push CCR onto stack
+	write(--s, (Byte)cc.all);
+	check_stack_ovf("nmi_post_psh");
+
+	// disable interrupts
+	cc.bit.f = 1;
+	cc.bit.i = 1;
+
+	on_nmi(pc, read_word(0xFFFC));
+
+	// jump to isr
+	pc = read_word(0xFFFC);
+
+	//had_interrupt = true;
+	was_doing_sync = false;
+
+	// yes the interrupt will be executed
+	return true;
+}
+
+bool mc6809::irq(void) {
+	if (!was_doing_sync) {
+		if (cc.bit.i) {
+			// interrupt cannot execute because interrupts are disabled
+			return false;
+		}
+
+		check_stack_ovf("irq_pre_psh");
+		// push PC onto stack
+		write(--s, (Byte)pc);
+		write(--s, (Byte)(pc >> 8));
+		
+		// push other registers
+		write(--s, (Byte)u);
+		write(--s, (Byte)(u >> 8));
+		write(--s, (Byte)y);
+		write(--s, (Byte)(y >> 8));
+		write(--s, (Byte)x);
+		write(--s, (Byte)(x >> 8));
+		write(--s, dp);
+		write(--s, b);
+		write(--s, a);
+		
+
+		// set e flag to indicate normal interrupt
+		cc.bit.e = 1;
+
+		// push CCR onto stack
+		write(--s, (Byte)cc.all);
+		check_stack_ovf("irq_post_psh");
+
+		// disable interrupts
+		cc.bit.i = 1;
+
+		on_irq(pc, read_word(0xFFFC));
+
+		// jump to isr
+		pc = read_word(0xFFF8);
+	} else {
+		on_irq(pc, pc + 1);
+	}
+
+	had_interrupt = true;
+
+	// yes the interrupt will be executed
+	return true;
 }
