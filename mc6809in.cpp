@@ -939,11 +939,10 @@ void mc6809::rti(void)
 {
 	check_stack_ovf("rti");
 	uint16_t tmp_pc = pc;
-	help_pul(0x01, s, u);
 	if (cc.bit.e) {
-		help_pul(0xfe, s, u);
+		help_pul(0xff, s, u);
 	} else {
-		help_pul(0x80, s, u);
+		help_pul(0x81, s, u);
 	}
 	on_ret("rti", tmp_pc, pc);
 }
